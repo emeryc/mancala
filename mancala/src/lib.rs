@@ -1,96 +1,52 @@
-use std::{cell::RefCell, fmt};
+use std::error;
+use std::fmt;
+pub mod ayoayo;
+pub mod board;
 
-mod board;
-
-use board::{Cup, MancalaBoard, Player};
-
-const BOARD_SIZE: usize = 12;
-const STARTING_COUNT: usize = 4;
-
-#[derive(Clone)]
-pub struct Ayoayo {
-    pub(crate) board: MancalaBoard,
+#[derive(Copy, Debug, PartialEq, Clone, Hash, Eq)]
+pub enum Player {
+    Player1,
+    Player2,
 }
-impl Ayoayo {
-    pub fn new() -> Ayoayo {
-        let board: Vec<board::Cup> = [Player::Player1, Player::Player2]
-            .iter()
-            .flat_map(|player| {
-                (0..(BOARD_SIZE / 2)).map(move |i| Cup {
-                    owner: player.clone(),
-                    seeds: STARTING_COUNT,
-                    pos: i,
-                })
-            })
-            .collect();
 
-        return Ayoayo {
-            board: MancalaBoard::new(&board[..], &[Player::Player1, Player::Player2]),
-        };
-    }
-
-    fn sow_filter(check_cup: &RefCell<Cup>, player: Player, start_cup: usize) -> bool {
-        let cup = check_cup.borrow();
-        !(cup.owner == player && cup.pos == start_cup)
-    }
-
-    pub fn play(&self, cup: usize, player: Player) -> Ayoayo {
-        let (mut b, mut last) = self
-            .board
-            .pickup(
-                Cup {
-                    owner: player,
-                    pos: cup,
-                    seeds: 0,
-                },
-                player,
-            )
-            .sow(player, cup, Ayoayo::sow_filter);
-        while last.seeds > 1 {
-            println!("{}", b);
-            let (tb, tlast) = b
-                .pickup(last, player)
-                .sow(player, last.pos, Ayoayo::sow_filter);
-            b = tb;
-            last = tlast;
+impl Player {
+    pub(crate) fn next_player(&self) -> Player {
+        match self {
+            Player::Player1 => Player::Player2,
+            Player::Player2 => Player::Player1,
         }
-        if last.owner == player {
-            Ayoayo {
-                board: b
-                    .pickup(
-                        Cup {
-                            owner: match player {
-                                Player::Player1 => Player::Player2,
-                                Player::Player2 => Player::Player1,
-                            },
-                            ..last
-                        },
-                        player,
-                    )
-                    .bank(player),
+    }
+}
+
+type Result<T> = std::result::Result<T, MancalaError>;
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum MancalaError {
+    MustFeedError,
+    NoSeedsToSow,
+}
+
+impl fmt::Display for MancalaError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            MancalaError::MustFeedError => {
+                write!(f, "Your play must result in seeds for your opponent")
             }
-        } else {
-            Ayoayo { board: b }
+            MancalaError::NoSeedsToSow => write!(f, "You must choose a cup with seeds"),
         }
     }
 }
 
-impl fmt::Display for Ayoayo {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "{}", self.board)
+impl error::Error for MancalaError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        // Generic error, underlying cause isn't tracked.
+        None
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn play() {
-        let start_board = Ayoayo::new();
-        let new_board = start_board.play(3, Player::Player1);
-        assert_eq!("0 - ④|⑤|⑥|②|⑦|⑦\n①|⓪|④|④|④|④ - 0", format!("{}", new_board));
-        let new_board = new_board.play(0, Player::Player2);
-        assert_eq!("0 - ④|⓪|⑥|②|⑦|⑦\n⓪|①|④|④|④|④ - 5", format!("{}", new_board));
-    }
+#[derive(Clone, Debug, PartialEq)]
+pub enum GameState {
+    InProgress(Player),
+    Won(Player),
+    Draw,
 }

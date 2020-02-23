@@ -1,11 +1,6 @@
+use crate::Player;
 use itertools::{zip, Itertools};
 use std::{cell::RefCell, collections::HashMap, fmt};
-
-#[derive(Copy, Debug, PartialEq, Clone, Hash, Eq)]
-pub enum Player {
-    Player1,
-    Player2,
-}
 
 #[derive(Copy, Debug, PartialEq, Clone)]
 pub struct Cup {
@@ -27,7 +22,7 @@ impl<'a> Iterator for CupItterator<'a> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct MancalaBoard {
     pub(crate) cups: Vec<RefCell<Cup>>,
     pub(crate) bank: HashMap<Player, usize>,
@@ -42,6 +37,21 @@ impl MancalaBoard {
             bank: players.iter().map(|player| (*player, 0)).collect(),
             in_hand: players.iter().map(|player| (*player, 0)).collect(),
         }
+    }
+
+    pub(crate) fn get_cup(&self, player: Player, cup: usize) -> Cup {
+        self.iter_at_cup(player, cup)
+            .next()
+            .expect("Why would we ever not have a cup?")
+            .borrow()
+            .clone()
+    }
+
+    pub(crate) fn starving(&self, player: Player) -> bool {
+        self.cups
+            .iter()
+            .filter(|cup| cup.borrow().owner == player)
+            .all(|cup| cup.borrow().seeds == 0)
     }
 
     pub fn pickup(&self, cup: Cup, player: Player) -> MancalaBoard {
@@ -61,15 +71,15 @@ impl MancalaBoard {
     }
 
     // Move this into board, take a filter argument to validate that this is a cell you should be able to sow into
-    pub fn sow<F>(&self, player: Player, start_cup: usize, filter: F) -> (MancalaBoard, Cup)
+    pub fn sow<F>(&self, player: Player, cup: Cup, filter: F) -> (MancalaBoard, Cup)
     where
         F: Fn(&RefCell<Cup>, Player, usize) -> bool,
     {
         let new_board = self.clone();
         let final_cup: Option<&RefCell<Cup>> = zip(
             new_board
-                .iter_at_cup(player, start_cup)
-                .filter(|cup_ref| filter(cup_ref, player, start_cup)),
+                .iter_at_cup(cup.owner, cup.pos)
+                .filter(|cup_ref| filter(cup_ref, cup.owner, cup.pos)),
             0..*self.in_hand.get(&player).expect("Yikes"),
         )
         .map(|(c, _)| c)
@@ -213,10 +223,18 @@ mod tests {
                 },
                 Player::Player1,
             )
-            .sow(Player::Player1, 0, |c, p, _| {
-                let cup = c.borrow();
-                cup.owner != p
-            });
+            .sow(
+                Player::Player1,
+                Cup {
+                    pos: 0,
+                    owner: Player::Player1,
+                    seeds: 0,
+                },
+                |c, p, _| {
+                    let cup = c.borrow();
+                    cup.owner != p
+                },
+            );
         assert_eq!(
             0,
             *new_board.in_hand.get(&Player::Player1).expect("Debugging")
