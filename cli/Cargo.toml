@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 mancala = {path = "../mancala"}
+rustyline = "6.0.0"

@@ -1,8 +1,8 @@
-use crate::board::{Cup, MancalaBoard};
+use crate::board::{Cup, CupPos, MancalaBoard};
 use crate::{GameState, MancalaError, Player, Result};
 use compare::{natural, Compare};
 use std::cmp::Ordering;
-use std::{cell::RefCell, fmt};
+use std::fmt;
 
 const BOARD_SIZE: usize = 12;
 const STARTING_COUNT: usize = 4;
@@ -10,7 +10,7 @@ const STARTING_COUNT: usize = 4;
 #[derive(Clone, PartialEq)]
 pub struct Ayoayo {
     pub(crate) board: MancalaBoard,
-    pub(crate) state: GameState,
+    pub state: GameState,
 }
 impl Ayoayo {
     pub fn new() -> Ayoayo {
@@ -26,64 +26,59 @@ impl Ayoayo {
             .collect();
 
         return Ayoayo {
-            board: MancalaBoard::new(&board[..], &[Player::Player1, Player::Player2]),
+            board: MancalaBoard::new(board, &[Player::Player1, Player::Player2]),
             state: GameState::InProgress(Player::Player1),
         };
     }
 
-    fn sow_filter(check_cup: &RefCell<Cup>, player: Player, start_cup: usize) -> bool {
-        let cup = check_cup.borrow();
+    fn sow_filter(check_cup: &CupPos, player: Player, start_cup: usize) -> bool {
+        let cup = check_cup;
         !(cup.owner == player && cup.pos == start_cup)
     }
 
-    fn sow(board: MancalaBoard, player: Player, cup: usize) -> MancalaBoard {
-        let (mut b, mut last) = board
-            .pickup(
-                Cup {
-                    owner: player,
-                    pos: cup,
-                    seeds: 0,
-                },
-                player,
-            )
-            .sow(
-                player,
-                Cup {
-                    owner: player,
-                    pos: cup,
-                    seeds: 0,
-                },
-                Ayoayo::sow_filter,
-            );
+    fn sow(&mut self, player: Player, cup: usize) -> Result<()> {
+        self.board.pickup(
+            CupPos {
+                owner: player,
+                pos: cup,
+            },
+            player,
+        );
+        let mut last = self.board.sow(
+            player,
+            CupPos {
+                owner: player,
+                pos: cup,
+            },
+            Ayoayo::sow_filter,
+        )?;
         while last.seeds > 1 {
-            println!("{}", b);
-            let (tb, tlast) = b.pickup(last, player).sow(player, last, Ayoayo::sow_filter);
-            b = tb;
-            last = tlast;
+            let cup_pos = CupPos::from(&last);
+            self.board.pickup(cup_pos, player);
+            last = self.board.sow(player, cup_pos, Ayoayo::sow_filter)?;
         }
-        println!("{}", b);
         if last.owner == player {
-            b.pickup(
-                Cup {
+            self.board.pickup(
+                CupPos {
                     owner: player.next_player(),
-                    ..last
+                    pos: last.pos,
                 },
                 player,
-            )
-            .bank(player)
-        } else {
-            b
-        }
+            );
+            self.board.bank(player);
+        };
+        Ok(())
     }
 
-    fn win_state(board: MancalaBoard, player: Player) -> GameState {
-        let mut board = board.clone();
-        for cup in board.clone().cups {
-            board = board.pickup(*cup.borrow(), player).bank(player);
+    fn win_state(&mut self, player: Player) {
+        for cup in self.board.cups.clone().iter() {
+            let cup_pos = CupPos::from(cup);
+            self.board.pickup(cup_pos, player);
+            self.board.bank(player);
         }
-        match natural().compare(
-            board.bank.get(&player).expect("Player should exist"),
-            board
+        self.state = match natural().compare(
+            self.board.bank.get(&player).expect("Player should exist"),
+            self.board
                 .bank
                 .get(&player.next_player())
                 .expect("Player should exist"),
@@ -96,39 +91,58 @@ impl Ayoayo {
 
     // Game over Check (No valid moves)
     // Feeding check (Must give other player seeds if other player has no seeds _at start of play_)
-    pub fn play(&self, cup: usize) -> Result<Ayoayo> {
+    pub fn play(&mut self, cup: usize) -> Result<()> {
         let player = match self.state {
             GameState::InProgress(p) => p,
-            _ => return Ok(self.clone()),
+            _ => return Ok(()),
         };
 
-        println!("Cup - {:?}", self.board.get_cup(player, cup));
-        if self.board.get_cup(player, cup).seeds == 0 {
-            return Err(MancalaError::NoSeedsToSow);
+        if cup >= (BOARD_SIZE / 2) {
+            return Err(MancalaError::NoSuchCup);
         }
 
-        let must_feed = self.board.starving(player.next_player());
+        match self.board.get_cup(CupPos {
+            owner: player,
+            pos: cup,
+        }) {
+            Some(Cup {
+                owner: _,
+                pos: _,
+                seeds: 0,
+            }) => return Err(MancalaError::NoSeedsToSow),
+            None => return Err(MancalaError::NoSuchCup),
+            _ => (),
+        };
 
-        let board_result = Ayoayo::sow(self.board.clone(), player, cup);
-        if must_feed && board_result.starving(player.next_player()) {
+        let must_feed = self.board.starving(player.next_player());
+        let mut test_board = self.clone();
+        test_board.sow(player, cup)?;
+        if must_feed && test_board.board.starving(player.next_player()) {
             //If we must feed and didn't, we need to make sure that we couldn't have
             let any_not_starving = (0..(BOARD_SIZE / 2))
                 .filter(|i| *i != cup)
-                .map(|cup| Ayoayo::sow(self.board.clone(), player, cup))
+                .map(|cup| {
+                    let mut b = self.clone();
+                    if let Err(_) = b.sow(player, cup) {
+                        return self.clone().board;
+                    }
+                    b.board
+                })
                 .map(|board| board.starving(player.next_player()))
                 .any(|s| !s);
             if any_not_starving {
                 return Err(MancalaError::MustFeedError);
             }
         };
-        Ok(Ayoayo {
-            board: board_result.clone(),
-            state: if board_result.starving(player.next_player()) {
-                Ayoayo::win_state(board_result, player)
-            } else {
-                GameState::InProgress(player.next_player())
-            },
-        })
+
+        self.board = test_board.board.clone();
+        if test_board.board.starving(player.next_player()) {
+            self.win_state(player);
+        } else {
+            self.state = GameState::InProgress(player.next_player())
+        };
+
+        Ok(())
     }
 }
 
@@ -150,139 +164,82 @@ mod tests {
 
     #[test]
     fn play() -> Result<()> {
-        let start_board = Ayoayo::new();
-        let new_board = start_board.play(3)?;
-        assert_eq!("0 - ①|⑥|⑥|②|⑦|①\n⑥|①|⑥|⑥|⑥|⓪ - 0", format!("{}", new_board));
-        assert_eq!(new_board.state, GameState::InProgress(Player::Player2));
+        let mut board = Ayoayo::new();
+        board.play(3)?;
+        assert_eq!("0 - ①|⑥|⑥|②|⑦|①\n⑥|①|⑥|⑥|⑥|⓪ - 0", format!("{}", board));
+        assert_eq!(board.state, GameState::InProgress(Player::Player2));
         println!("-- play2 --");
-        let new_board = new_board.play(0)?;
-        assert_eq!("0 - ②|⑨|②|⑤|⑩|①\n②|④|⓪|①|⑨|③ - 0", format!("{}", new_board));
+        board.play(0)?;
+        assert_eq!("0 - ②|⑨|②|⑤|⑩|①\n②|④|⓪|①|⑨|③ - 0", format!("{}", board));
         println!("-- play3 --");
-        let new_board = new_board.play(0)?;
-        assert_eq!("3 - ①|⑩|⓪|⑥|⑰|⓪\n⓪|⓪|①|②|⑩|④ - 0", format!("{}", new_board));
+        board.play(0)?;
+        assert_eq!("3 - ①|⑩|⓪|⑥|⑰|⓪\n⓪|⓪|①|②|⑩|④ - 0", format!("{}", board));
         println!("-- play4 --");
-        let new_board = new_board.play(4)?;
-        assert_eq!(
-            "3 - ②|⑰|①|⑦|⓪|①\n①|①|⓪|③|①|⑤ - 12",
-            format!("{}", new_board)
-        );
+        board.play(4)?;
+        assert_eq!("3 - ②|⑰|①|⑦|⓪|①\n①|①|⓪|③|①|⑤ - 12", format!("{}", board));
         println!("-- play5 --");
-        let new_board = new_board.play(2)?;
-        assert_eq!(
-            "3 - ⑥|①|⓪|①|⑤|③\n①|⑤|②|⑦|②|⓪ - 12",
-            format!("{}", new_board)
-        );
+        board.play(2)?;
+        assert_eq!("3 - ⑥|①|⓪|①|⑤|③\n①|⑤|②|⑦|②|⓪ - 12", format!("{}", board));
         println!("-- play6 --");
-        let new_board = new_board.play(1)?;
-        assert_eq!(
-            "3 - ⓪|⓪|①|②|⑥|④\n②|①|③|⑧|③|① - 14",
-            format!("{}", new_board)
-        );
+        board.play(1)?;
+        assert_eq!("3 - ⓪|⓪|①|②|⑥|④\n②|①|③|⑧|③|① - 14", format!("{}", board));
         println!("-- play7 --");
-        let new_board = new_board.play(3)?;
-        assert_eq!(
-            "8 - ⓪|②|①|①|⓪|①\n④|③|⓪|⑩|①|③ - 14",
-            format!("{}", new_board)
-        );
+        board.play(3)?;
+        assert_eq!("8 - ⓪|②|①|①|⓪|①\n④|③|⓪|⑩|①|③ - 14", format!("{}", board));
         println!("-- play8 --");
-        let new_board = new_board.play(3)?;
-        assert_eq!(
-            "8 - ①|⑤|④|⓪|①|④\n①|⓪|③|⓪|⑤|② - 14",
-            format!("{}", new_board)
-        );
+        board.play(3)?;
+        assert_eq!("8 - ①|⑤|④|⓪|①|④\n①|⓪|③|⓪|⑤|② - 14", format!("{}", board));
         println!("-- play9 --");
-        let new_board = new_board.play(1)?;
-        assert_eq!(
-            "8 - ⓪|①|⓪|②|③|⑥\n①|②|①|①|⑥|③ - 14",
-            format!("{}", new_board)
-        );
+        board.play(1)?;
+        assert_eq!("8 - ⓪|①|⓪|②|③|⑥\n①|②|①|①|⑥|③ - 14", format!("{}", board));
         println!("-- play10 --");
-        let new_board = new_board.play(1)?;
-        assert_eq!(
-            "8 - ①|②|①|⓪|④|⓪\n⓪|①|⓪|①|⑧|① - 21",
-            format!("{}", new_board)
-        );
+        board.play(1)?;
+        assert_eq!("8 - ①|②|①|⓪|④|⓪\n⓪|①|⓪|①|⑧|① - 21", format!("{}", board));
         println!("-- play11 --");
-        let new_board = new_board.play(0)?;
-        assert_eq!(
-            "10 - ①|①|②|①|⓪|①\n①|⓪|①|⓪|⑨|⓪ - 21",
-            format!("{}", new_board)
-        );
+        board.play(0)?;
+        assert_eq!("10 - ①|①|②|①|⓪|①\n①|⓪|①|⓪|⑨|⓪ - 21", format!("{}", board));
         println!("-- play12 --");
-        let new_board = new_board.play(4)?;
-        assert_eq!(
-            "10 - ②|⓪|③|②|①|②\n②|①|①|⓪|⓪|① - 23",
-            format!("{}", new_board)
-        );
+        board.play(4)?;
+        assert_eq!("10 - ②|⓪|③|②|①|②\n②|①|①|⓪|⓪|① - 23", format!("{}", board));
         println!("-- play13 --");
-        let new_board = new_board.play(2)?;
-        assert_eq!(
-            "10 - ②|⓪|⓪|③|②|⓪\n③|②|⓪|①|①|① - 23",
-            format!("{}", new_board)
-        );
+        board.play(2)?;
+        assert_eq!("10 - ②|⓪|⓪|③|②|⓪\n③|②|⓪|①|①|① - 23", format!("{}", board));
         println!("-- play14 --");
-        let new_board = new_board.play(3)?;
-        assert_eq!(
-            "10 - ⓪|①|①|⓪|⓪|①\n④|⓪|①|①|①|② - 26",
-            format!("{}", new_board)
-        );
+        board.play(3)?;
+        assert_eq!("10 - ⓪|①|①|⓪|⓪|①\n④|⓪|①|①|①|② - 26", format!("{}", board));
         println!("-- play15 --");
-        let new_board = new_board.play(5)?;
-        assert_eq!(
-            "12 - ①|②|⓪|①|①|⓪\n⓪|①|②|②|⓪|⓪ - 26",
-            format!("{}", new_board)
-        );
+        board.play(5)?;
+        assert_eq!("12 - ①|②|⓪|①|①|⓪\n⓪|①|②|②|⓪|⓪ - 26", format!("{}", board));
         println!("-- play16 --");
-        let new_board = new_board.play(2)?;
-        assert_eq!(
-            "12 - ①|②|⓪|①|⓪|⓪\n⓪|①|⓪|③|①|⓪ - 27",
-            format!("{}", new_board)
-        );
+        board.play(2)?;
+        assert_eq!("12 - ①|②|⓪|①|⓪|⓪\n⓪|①|⓪|③|①|⓪ - 27", format!("{}", board));
         println!("-- play17 --");
-        let new_board = new_board.play(3)?;
-        assert_eq!(
-            "13 - ①|②|⓪|⓪|①|⓪\n⓪|①|⓪|③|⓪|⓪ - 27",
-            format!("{}", new_board)
-        );
+        board.play(3)?;
+        assert_eq!("13 - ①|②|⓪|⓪|①|⓪\n⓪|①|⓪|③|⓪|⓪ - 27", format!("{}", board));
         println!("-- play18 --");
-        let new_board = new_board.play(3)?;
-        assert_eq!(
-            "13 - ⓪|③|①|⓪|①|⓪\n⓪|①|⓪|⓪|①|① - 27",
-            format!("{}", new_board)
-        );
+        board.play(3)?;
+        assert_eq!("13 - ⓪|③|①|⓪|①|⓪\n⓪|①|⓪|⓪|①|① - 27", format!("{}", board));
         println!("-- play19 --");
-        let new_board = new_board.play(4)?;
-        assert_eq!(
-            "14 - ⓪|③|①|⓪|⓪|①\n⓪|①|⓪|⓪|①|⓪ - 27",
-            format!("{}", new_board)
-        );
+        board.play(4)?;
+        assert_eq!("14 - ⓪|③|①|⓪|⓪|①\n⓪|①|⓪|⓪|①|⓪ - 27", format!("{}", board));
         println!("-- play20 --");
-        let new_board = new_board.play(1)?;
-        assert_eq!(
-            "14 - ⓪|③|⓪|⓪|⓪|①\n⓪|⓪|①|⓪|①|⓪ - 28",
-            format!("{}", new_board)
-        );
+        board.play(1)?;
+        assert_eq!("14 - ⓪|③|⓪|⓪|⓪|①\n⓪|⓪|①|⓪|①|⓪ - 28", format!("{}", board));
         println!("-- play21 --");
-        let new_board = new_board.play(5)?;
-        assert_eq!(
-            "14 - ⓪|③|⓪|⓪|⓪|⓪\n①|⓪|①|⓪|①|⓪ - 28",
-            format!("{}", new_board)
-        );
+        board.play(5)?;
+        assert_eq!("14 - ⓪|③|⓪|⓪|⓪|⓪\n①|⓪|①|⓪|①|⓪ - 28", format!("{}", board));
         println!("-- play22 --");
-        let new_board = new_board.play(0)?;
-        assert_eq!(
-            "14 - ⓪|⓪|⓪|⓪|⓪|⓪\n⓪|①|①|⓪|①|⓪ - 31",
-            format!("{}", new_board)
-        );
-        assert_eq!(new_board.state, GameState::Won(Player::Player2));
+        board.play(0)?;
+        assert_eq!("14 - ⓪|⓪|⓪|⓪|⓪|⓪\n⓪|⓪|⓪|⓪|⓪|⓪ - 34", format!("{}", board));
+        assert_eq!(board.state, GameState::Won(Player::Player2));
         Ok(())
     }
 
     #[test]
     fn must_feed_test() {
-        let game = Ayoayo {
+        let mut game = Ayoayo {
             board: MancalaBoard::new(
-                &[
+                vec![
                     Cup {
                         seeds: 1,
                         owner: Player::Player1,
@@ -323,9 +280,9 @@ mod tests {
 
     #[test]
     fn no_seeds_test() {
-        let game = Ayoayo {
+        let mut game = Ayoayo {
             board: MancalaBoard::new(
-                &[
+                vec![
                     Cup {
                         seeds: 1,
                         owner: Player::Player1,
