@@ -10,7 +10,7 @@ pub enum Player {
 }
 
 impl Player {
-    pub(crate) fn next_player(&self) -> Player {
+    pub(crate) fn next_player(self) -> Player {
         match self {
             Player::Player1 => Player::Player2,
             Player::Player2 => Player::Player1,

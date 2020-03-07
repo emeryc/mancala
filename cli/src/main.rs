@@ -5,7 +5,7 @@ use mancala::{ayoayo::Ayoayo, GameState, MancalaError};
 
 enum Command {
     Quit,
-    UnknownCommand(String),
+    Unknown(String),
     Play(usize),
 }
 
@@ -36,7 +36,7 @@ fn main() {
             },
             Ok(Command::Play(_)) => println!("The cup you chose doesn't exist"),
             Ok(Command::Quit) => break,
-            Ok(Command::UnknownCommand(command)) => {
+            Ok(Command::Unknown(command)) => {
                 println!("Command not found: {}", command);
                 break;
             }
@@ -56,6 +56,6 @@ fn string_to_command(string: String) -> Command {
         c if c.parse::<usize>().is_ok() => {
             Command::Play(c.parse::<usize>().expect("already tested"))
         }
-        line => Command::UnknownCommand(String::from(line)),
+        line => Command::Unknown(String::from(line)),
     }
 }

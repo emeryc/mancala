@@ -57,7 +57,7 @@ impl MancalaBoard {
                 return Some(c);
             }
         }
-        return None;
+        None
     }
 
     fn get_mut_cup(&mut self, cup: CupPos) -> Option<&mut Cup> {
@@ -66,7 +66,7 @@ impl MancalaBoard {
                 return Some(c);
             }
         }
-        return None;
+        None
     }
 
     pub(crate) fn starving(&self, player: Player) -> bool {
@@ -103,7 +103,7 @@ impl MancalaBoard {
             .cups
             .clone()
             .iter()
-            .map(|c| CupPos::from(c))
+            .map(CupPos::from)
             .cycle()
             .skip_while(|c| *c != cup)
             .filter(|c| filter(c, cup.owner, cup.pos))
@@ -116,7 +116,7 @@ impl MancalaBoard {
             .last();
         self.in_hand.insert(player, 0);
 
-        return final_cup.ok_or(MancalaError::NoSeedsToSow);
+        final_cup.ok_or(MancalaError::NoSeedsToSow)
     }
 
     pub(crate) fn bank(&mut self, player: Player) {
@@ -159,13 +159,13 @@ mod tests {
         for owner in [Player::Player1, Player::Player2].iter() {
             for i in 0..(size / 2) {
                 board.push(Cup {
-                    owner: owner.clone(),
+                    owner: *owner,
                     seeds: count,
                     pos: i,
                 })
             }
         }
-        return MancalaBoard::new(board, &[Player::Player1, Player::Player2]);
+        MancalaBoard::new(board, &[Player::Player1, Player::Player2])
     }
 
     #[test]

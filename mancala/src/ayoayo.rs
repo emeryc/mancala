@@ -12,23 +12,30 @@ pub struct Ayoayo {
     pub(crate) board: MancalaBoard,
     pub state: GameState,
 }
+
+impl Default for Ayoayo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Ayoayo {
     pub fn new() -> Ayoayo {
         let board: Vec<Cup> = [Player::Player1, Player::Player2]
             .iter()
             .flat_map(|player| {
                 (0..(BOARD_SIZE / 2)).map(move |i| Cup {
-                    owner: player.clone(),
+                    owner: *player,
                     seeds: STARTING_COUNT,
                     pos: i,
                 })
             })
             .collect();
 
-        return Ayoayo {
+        Ayoayo {
             board: MancalaBoard::new(board, &[Player::Player1, Player::Player2]),
             state: GameState::InProgress(Player::Player1),
-        };
+        }
     }
 
     fn sow_filter(check_cup: &CupPos, player: Player, start_cup: usize) -> bool {
@@ -105,11 +112,7 @@ impl Ayoayo {
             owner: player,
             pos: cup,
         }) {
-            Some(Cup {
-                owner: _,
-                pos: _,
-                seeds: 0,
-            }) => return Err(MancalaError::NoSeedsToSow),
+            Some(Cup { seeds: 0, .. }) => return Err(MancalaError::NoSeedsToSow),
             None => return Err(MancalaError::NoSuchCup),
             _ => (),
         };
@@ -123,7 +126,7 @@ impl Ayoayo {
                 .filter(|i| *i != cup)
                 .map(|cup| {
                     let mut b = self.clone();
-                    if let Err(_) = b.sow(player, cup) {
+                    if b.sow(player, cup).is_err() {
                         return self.clone().board;
                     }
                     b.board
