@@ -1,7 +1,7 @@
-use mancala::{ayoayo::Ayoayo, GameState, MancalaError};
-
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+
+use mancala::{ayoayo::Ayoayo, GameState, MancalaError};
 
 enum Command {
     Quit,

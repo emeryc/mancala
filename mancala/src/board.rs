@@ -41,15 +41,6 @@ pub struct MancalaBoard {
     pub(crate) in_hand: HashMap<Player, usize>,
 }
 
-// struct InfIterMut<'a>(&'a Vec<Cup>, usize);
-// impl<'a> Iterator for InfIterMut<'a> {
-//     type Item = &'a mut Cup;
-
-//     fn next(&mut self) -> std::option::Option<<Self as std::iter::Iterator>::Item> {
-//         self.0.get_mut(self.1)
-//     }
-// }
-
 impl MancalaBoard {
     // Does the board need the concept of the bank and the hand?
     pub(crate) fn new(cups: Vec<Cup>, players: &[Player]) -> MancalaBoard {
