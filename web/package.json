@@ -14,5 +14,8 @@
     "webpack-cli": "^3.3.3",
     "webpack-dev-server": "^3.7.1",
     "rimraf": "^2.6.3"
+  },
+  "dependencies": {
+    "normalize.css": "^8.0.1"
   }
 }

@@ -1,0 +1,82 @@
+.cup {
+    background-color: white;
+    border: 1px solid black;
+    border-radius: 50%;
+    font-size: 24px;
+    padding-top: 4px;
+    width: 36px;
+    height: 36px;
+    margin: 2px;
+}
+
+body {
+    display: flex;
+    margin: auto;
+    height: 100vh;
+}
+
+.root {
+    display: grid;
+    margin: auto;
+    grid: [row1-start] "bank1Name info bank2Name" 50px [row1-end]
+                    [row2-start] "bank1 board bank2" auto [row2-end]
+                    [row3-start] "bank1blank reset bank2blank" 50px [row3-end] 
+                    / 75px auto 75px;
+    /* grid: [row1-start] "header header header" 1fr [row1-end]
+    [row2-start] "footer footer footer" 25px [row2-end]
+    / auto 50px auto;  */
+}
+
+
+.info {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    grid-area: info;
+}
+
+.game {
+    display: grid;
+}
+
+
+.bank1name {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    grid-area: bank1Name;
+    text-align: center;
+}
+
+.bank2name {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    grid-area: bank2Name;
+    text-align: center;
+}
+
+.bank1 {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    grid-area: bank1;
+}
+
+.bank2 {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    grid-area: bank2;
+}
+
+.board {
+    grid-area: board;
+}
+
+.restart {
+    grid-area: reset;
+    background-color: white;
+    border: 0px none white;
+}
+

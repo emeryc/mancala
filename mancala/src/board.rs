@@ -1,6 +1,6 @@
 use crate::{MancalaError, Player, Result};
 use itertools::Itertools;
-use std::{collections::HashMap, fmt};
+use std::fmt;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Cup {
@@ -34,21 +34,142 @@ impl From<&Cup> for CupPos {
     }
 }
 
-#[derive(Clone, PartialEq)]
+impl std::convert::Into<CupPos> for Cup {
+    fn into(self) -> CupPos {
+        CupPos {
+            owner: self.owner,
+            pos: self.pos,
+        }
+    }
+}
+
+impl std::convert::Into<CupPos> for &mut Cup {
+    fn into(self) -> CupPos {
+        CupPos {
+            owner: self.owner,
+            pos: self.pos,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct Bank {
+    player1: usize,
+    player2: usize,
+}
+
+impl Bank {
+    fn new() -> Self {
+        Bank {
+            player1: 0,
+            player2: 0,
+        }
+    }
+
+    fn deposit(&mut self, player: Player, count: usize) -> usize {
+        match player {
+            Player::Player1 => {
+                self.player1 += count;
+                self.player1
+            }
+            Player::Player2 => {
+                self.player2 += count;
+                self.player2
+            }
+        }
+    }
+
+    pub fn get(&self, player: Player) -> usize {
+        match player {
+            Player::Player1 => self.player1,
+            Player::Player2 => self.player2,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct InHand {
+    player1: usize,
+    player2: usize,
+}
+
+impl InHand {
+    fn new() -> Self {
+        InHand {
+            player1: 0,
+            player2: 0,
+        }
+    }
+
+    fn take(&mut self, player: Player, seeds: usize) -> usize {
+        match player {
+            Player::Player1 => {
+                self.player1 += seeds;
+                self.player1
+            }
+            Player::Player2 => {
+                self.player2 += seeds;
+                self.player2
+            }
+        }
+    }
+
+    fn drop(&mut self, player: Player) -> usize {
+        match player {
+            Player::Player1 => {
+                let start = self.player1;
+                self.player1 = 0;
+                start
+            }
+            Player::Player2 => {
+                let start = self.player2;
+                self.player2 = 0;
+                start
+            }
+        }
+    }
+
+    fn get(&self, player: Player) -> usize {
+        match player {
+            Player::Player1 => self.player1,
+            Player::Player2 => self.player2,
+        }
+    }
+}
+#[derive(Clone, PartialEq, Debug)]
+pub enum Move {
+    Pickup(CupPos),
+    Place(CupPos),
+    Bank(Player, usize),
+}
+
+#[derive(Clone, PartialEq, Debug)]
 pub struct MancalaBoard {
     pub(crate) cups: Vec<Cup>,
-    pub(crate) bank: HashMap<Player, usize>,
-    pub(crate) in_hand: HashMap<Player, usize>,
+    pub(crate) bank: Bank,
+    pub(crate) in_hand: InHand,
+    pub(crate) moves: Vec<Vec<Move>>,
 }
 
 impl MancalaBoard {
     // Does the board need the concept of the bank and the hand?
-    pub(crate) fn new(cups: Vec<Cup>, players: &[Player]) -> MancalaBoard {
-        MancalaBoard {
-            cups: cups.into_iter().map(|c| c).collect(),
-            bank: players.iter().map(|player| (*player, 0)).collect(),
-            in_hand: players.iter().map(|player| (*player, 0)).collect(),
-        }
+    pub(crate) fn new(cups: Vec<Cup>) -> MancalaBoard {
+        let mut board = MancalaBoard {
+            cups: cups.clone().into_iter().map(|c| c).collect(),
+            bank: Bank::new(),
+            in_hand: InHand::new(),
+            moves: Vec::new(),
+        };
+        board.moves.push(
+            cups.iter()
+                .flat_map(|cup| (0..cup.seeds).map(move |_| Move::Place(cup.clone().into())))
+                .collect(),
+        );
+        board
+    }
+
+    pub(crate) fn new_move(&mut self) {
+        self.moves.push(Vec::new())
     }
 
     pub(crate) fn get_cup(&self, cup: CupPos) -> Option<&Cup> {
@@ -78,15 +199,20 @@ impl MancalaBoard {
 
     pub(crate) fn pickup(&mut self, cup: CupPos, player: Player) -> Option<()> {
         let mut cup = self.get_mut_cup(cup);
-        // let mut in_hand = self.in_hand.get_mut(&player);
+
         cup.take()
             .map(|cup| {
                 let seeds = cup.seeds;
                 cup.seeds = 0;
-                seeds
+                (seeds, cup.clone().into())
             })
-            .map(|seeds| {
-                self.in_hand.insert(player, seeds);
+            .map(|res: (usize, CupPos)| {
+                self.in_hand.take(player, res.0);
+                if res.0 > 0 {
+                    if let Some(moves) = self.moves.last_mut() {
+                        moves.push(Move::Pickup(res.1))
+                    }
+                }
             })
     }
 
@@ -95,10 +221,7 @@ impl MancalaBoard {
     where
         F: Fn(&CupPos, Player, usize) -> bool,
     {
-        let seeds = *self
-            .in_hand
-            .get_mut(&player)
-            .expect("Player doesn't exist!");
+        let seeds = self.in_hand.get(player);
         let final_cup = self
             .cups
             .clone()
@@ -111,19 +234,26 @@ impl MancalaBoard {
             .map(|cup_pos| {
                 let mut cup = self.get_mut_cup(cup_pos).expect("");
                 cup.seeds += 1;
-                cup.clone()
+                let clone = cup.clone();
+                if let Some(moves) = self.moves.last_mut() {
+                    moves.push(Move::Place(clone.clone().into()))
+                }
+                clone
             })
             .last();
-        self.in_hand.insert(player, 0);
+        self.in_hand.drop(player);
 
         final_cup.ok_or(MancalaError::NoSeedsToSow)
     }
 
     pub(crate) fn bank(&mut self, player: Player) {
-        let value = self.in_hand.insert(player, 0).unwrap_or_else(|| 0);
-        self.bank
-            .entry(player)
-            .and_modify(|cur_bank| *cur_bank += value);
+        let value = self.in_hand.drop(player);
+        self.bank.deposit(player, value);
+        if value > 0 {
+            if let Some(moves) = self.moves.last_mut() {
+                moves.push(Move::Bank(player, value));
+            }
+        }
     }
 }
 
@@ -142,10 +272,10 @@ impl fmt::Display for MancalaBoard {
         write!(
             fmt,
             "{} - {}\n{} - {}",
-            self.bank.get(&Player::Player1).expect("Ugh"),
+            self.bank.get(Player::Player1),
             top,
             bottom,
-            self.bank.get(&Player::Player2).expect("Ugh")
+            self.bank.get(Player::Player2)
         )
     }
 }
@@ -165,7 +295,9 @@ mod tests {
                 })
             }
         }
-        MancalaBoard::new(board, &[Player::Player1, Player::Player2])
+        let mut board = MancalaBoard::new(board);
+        board.new_move();
+        board
     }
 
     #[test]
@@ -186,7 +318,7 @@ mod tests {
             Player::Player1,
         );
         assert_eq!("0 - ④|④|④|④|④|④\n④|④|④|⓪|④|④ - 0", format!("{}", board));
-        assert_eq!(4, *board.in_hand.get(&Player::Player1).expect("Yikes!"));
+        assert_eq!(4, board.in_hand.get(Player::Player1));
     }
 
     #[test]
@@ -221,51 +353,49 @@ mod tests {
             },
             |cup, p, _| cup.owner != p,
         );
-        assert_eq!(0, *board.in_hand.get(&Player::Player1).expect("Debugging"));
+        assert_eq!(0, board.in_hand.get(Player::Player1));
         assert_eq!("0 - ⓪|②\n③|③ - 0", format!("{}", board));
         assert_eq!(
             "Cup { owner: Player2, seeds: 3, pos: 1 }",
             format!("{:?}", cup.unwrap())
-        )
+        );
+        assert_eq!("[[Pickup(CupPos { owner: Player1, pos: 0 }), Place(CupPos { owner: Player2, pos: 0 }), Place(CupPos { owner: Player2, pos: 1 })]]", format!("{:?}", board.moves))
     }
 
     #[test]
     fn sow_2() {
-        let mut board = MancalaBoard::new(
-            vec![
-                Cup {
-                    seeds: 1,
-                    owner: Player::Player1,
-                    pos: 0,
-                },
-                Cup {
-                    seeds: 0,
-                    owner: Player::Player1,
-                    pos: 1,
-                },
-                Cup {
-                    seeds: 1,
-                    owner: Player::Player1,
-                    pos: 2,
-                },
-                Cup {
-                    seeds: 0,
-                    owner: Player::Player2,
-                    pos: 0,
-                },
-                Cup {
-                    seeds: 0,
-                    owner: Player::Player2,
-                    pos: 1,
-                },
-                Cup {
-                    seeds: 0,
-                    owner: Player::Player2,
-                    pos: 2,
-                },
-            ],
-            &[Player::Player1, Player::Player2],
-        );
+        let mut board = MancalaBoard::new(vec![
+            Cup {
+                seeds: 1,
+                owner: Player::Player1,
+                pos: 0,
+            },
+            Cup {
+                seeds: 0,
+                owner: Player::Player1,
+                pos: 1,
+            },
+            Cup {
+                seeds: 1,
+                owner: Player::Player1,
+                pos: 2,
+            },
+            Cup {
+                seeds: 0,
+                owner: Player::Player2,
+                pos: 0,
+            },
+            Cup {
+                seeds: 0,
+                owner: Player::Player2,
+                pos: 1,
+            },
+            Cup {
+                seeds: 0,
+                owner: Player::Player2,
+                pos: 2,
+            },
+        ]);
         board.pickup(
             CupPos {
                 pos: 0,
@@ -281,7 +411,7 @@ mod tests {
             },
             |cup, p, pos| !(cup.owner == p && cup.pos == pos),
         );
-        assert_eq!(0, *board.in_hand.get(&Player::Player1).expect("Debugging"));
+        assert_eq!(0, board.in_hand.get(Player::Player1));
         assert_eq!("0 - ⓪|①|①\n⓪|⓪|⓪ - 0", format!("{}", board));
         assert_eq!(
             "Cup { owner: Player1, seeds: 1, pos: 1 }",

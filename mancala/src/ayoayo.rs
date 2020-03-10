@@ -20,6 +20,21 @@ impl Default for Ayoayo {
 }
 
 impl Ayoayo {
+    pub fn get_cups_for_player(&self, player: Player) -> Vec<Cup> {
+        self.board
+            .cups
+            .iter()
+            .filter(|cup| cup.owner == player)
+            .cloned()
+            .collect::<Vec<_>>()
+    }
+
+    pub fn get_bank(&self, player: Player) -> usize {
+        self.board.bank.get(player)
+    }
+}
+
+impl Ayoayo {
     pub fn new() -> Ayoayo {
         let board: Vec<Cup> = [Player::Player1, Player::Player2]
             .iter()
@@ -33,7 +48,7 @@ impl Ayoayo {
             .collect();
 
         Ayoayo {
-            board: MancalaBoard::new(board, &[Player::Player1, Player::Player2]),
+            board: MancalaBoard::new(board),
             state: GameState::InProgress(Player::Player1),
         }
     }
@@ -84,11 +99,8 @@ impl Ayoayo {
             self.board.bank(player);
         }
         self.state = match natural().compare(
-            self.board.bank.get(&player).expect("Player should exist"),
-            self.board
-                .bank
-                .get(&player.next_player())
-                .expect("Player should exist"),
+            &self.board.bank.get(player),
+            &self.board.bank.get(player.next_player()),
         ) {
             Ordering::Less => GameState::Won(player.next_player()),
             Ordering::Greater => GameState::Won(player),
@@ -119,6 +131,7 @@ impl Ayoayo {
 
         let must_feed = self.board.starving(player.next_player());
         let mut test_board = self.clone();
+        test_board.board.new_move();
         test_board.sow(player, cup)?;
         if must_feed && test_board.board.starving(player.next_player()) {
             //If we must feed and didn't, we need to make sure that we couldn't have
@@ -166,11 +179,13 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn play() -> Result<()> {
         let mut board = Ayoayo::new();
         board.play(3)?;
         assert_eq!("0 - ①|⑥|⑥|②|⑦|①\n⑥|①|⑥|⑥|⑥|⓪ - 0", format!("{}", board));
         assert_eq!(board.state, GameState::InProgress(Player::Player2));
+        assert_eq!("[Pickup(CupPos { owner: Player1, pos: 3 }), Place(CupPos { owner: Player1, pos: 4 }), Place(CupPos { owner: Player1, pos: 5 }), Place(CupPos { owner: Player2, pos: 0 }), Place(CupPos { owner: Player2, pos: 1 }), Pickup(CupPos { owner: Player2, pos: 1 }), Place(CupPos { owner: Player2, pos: 2 }), Place(CupPos { owner: Player2, pos: 3 }), Place(CupPos { owner: Player2, pos: 4 }), Place(CupPos { owner: Player2, pos: 5 }), Place(CupPos { owner: Player1, pos: 0 }), Pickup(CupPos { owner: Player1, pos: 0 }), Place(CupPos { owner: Player1, pos: 1 }), Place(CupPos { owner: Player1, pos: 2 }), Place(CupPos { owner: Player1, pos: 3 }), Place(CupPos { owner: Player1, pos: 4 }), Place(CupPos { owner: Player1, pos: 5 }), Pickup(CupPos { owner: Player1, pos: 5 }), Place(CupPos { owner: Player2, pos: 0 }), Place(CupPos { owner: Player2, pos: 1 }), Place(CupPos { owner: Player2, pos: 2 }), Place(CupPos { owner: Player2, pos: 3 }), Place(CupPos { owner: Player2, pos: 4 }), Place(CupPos { owner: Player2, pos: 5 }), Pickup(CupPos { owner: Player2, pos: 5 }), Place(CupPos { owner: Player1, pos: 0 }), Place(CupPos { owner: Player1, pos: 1 }), Place(CupPos { owner: Player1, pos: 2 }), Place(CupPos { owner: Player1, pos: 3 }), Place(CupPos { owner: Player1, pos: 4 }), Place(CupPos { owner: Player1, pos: 5 })]", format!("{:?}", board.board.moves.last().unwrap()));
         println!("-- play2 --");
         board.play(0)?;
         assert_eq!("0 - ②|⑨|②|⑤|⑩|①\n②|④|⓪|①|⑨|③ - 0", format!("{}", board));
@@ -241,41 +256,38 @@ mod tests {
     #[test]
     fn must_feed_test() {
         let mut game = Ayoayo {
-            board: MancalaBoard::new(
-                vec![
-                    Cup {
-                        seeds: 1,
-                        owner: Player::Player1,
-                        pos: 0,
-                    },
-                    Cup {
-                        seeds: 0,
-                        owner: Player::Player1,
-                        pos: 1,
-                    },
-                    Cup {
-                        seeds: 1,
-                        owner: Player::Player1,
-                        pos: 2,
-                    },
-                    Cup {
-                        seeds: 0,
-                        owner: Player::Player2,
-                        pos: 0,
-                    },
-                    Cup {
-                        seeds: 0,
-                        owner: Player::Player2,
-                        pos: 1,
-                    },
-                    Cup {
-                        seeds: 0,
-                        owner: Player::Player2,
-                        pos: 2,
-                    },
-                ],
-                &[Player::Player1, Player::Player2],
-            ),
+            board: MancalaBoard::new(vec![
+                Cup {
+                    seeds: 1,
+                    owner: Player::Player1,
+                    pos: 0,
+                },
+                Cup {
+                    seeds: 0,
+                    owner: Player::Player1,
+                    pos: 1,
+                },
+                Cup {
+                    seeds: 1,
+                    owner: Player::Player1,
+                    pos: 2,
+                },
+                Cup {
+                    seeds: 0,
+                    owner: Player::Player2,
+                    pos: 0,
+                },
+                Cup {
+                    seeds: 0,
+                    owner: Player::Player2,
+                    pos: 1,
+                },
+                Cup {
+                    seeds: 0,
+                    owner: Player::Player2,
+                    pos: 2,
+                },
+            ]),
             state: GameState::InProgress(Player::Player1),
         };
         assert_eq!(Err(MancalaError::MustFeedError), game.play(0));
@@ -284,41 +296,38 @@ mod tests {
     #[test]
     fn no_seeds_test() {
         let mut game = Ayoayo {
-            board: MancalaBoard::new(
-                vec![
-                    Cup {
-                        seeds: 1,
-                        owner: Player::Player1,
-                        pos: 0,
-                    },
-                    Cup {
-                        seeds: 0,
-                        owner: Player::Player1,
-                        pos: 1,
-                    },
-                    Cup {
-                        seeds: 1,
-                        owner: Player::Player1,
-                        pos: 2,
-                    },
-                    Cup {
-                        seeds: 0,
-                        owner: Player::Player2,
-                        pos: 0,
-                    },
-                    Cup {
-                        seeds: 0,
-                        owner: Player::Player2,
-                        pos: 1,
-                    },
-                    Cup {
-                        seeds: 0,
-                        owner: Player::Player2,
-                        pos: 2,
-                    },
-                ],
-                &[Player::Player1, Player::Player2],
-            ),
+            board: MancalaBoard::new(vec![
+                Cup {
+                    seeds: 1,
+                    owner: Player::Player1,
+                    pos: 0,
+                },
+                Cup {
+                    seeds: 0,
+                    owner: Player::Player1,
+                    pos: 1,
+                },
+                Cup {
+                    seeds: 1,
+                    owner: Player::Player1,
+                    pos: 2,
+                },
+                Cup {
+                    seeds: 0,
+                    owner: Player::Player2,
+                    pos: 0,
+                },
+                Cup {
+                    seeds: 0,
+                    owner: Player::Player2,
+                    pos: 1,
+                },
+                Cup {
+                    seeds: 0,
+                    owner: Player::Player2,
+                    pos: 2,
+                },
+            ]),
             state: GameState::InProgress(Player::Player1),
         };
         assert_eq!(Err(MancalaError::NoSeedsToSow), game.play(1));
